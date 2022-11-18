@@ -13,7 +13,9 @@ apply plugin: 'io.spring.dependency-management'
 apply from: "version-info.gradle"
 
 repositories {
-    jcenter()
+    mavenLocal()
+    mavenCentral()
+
 }
 
 group = 'com.cybersource'

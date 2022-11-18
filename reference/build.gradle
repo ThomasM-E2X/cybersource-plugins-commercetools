@@ -2,7 +2,8 @@ buildscript {
     apply from: "version-info.gradle"
 
     repositories {
-        jcenter()
+        mavenLocal()
+        mavenCentral()
     }
 }
 
@@ -15,7 +16,8 @@ plugins {
 }
 
 repositories {
-    jcenter()
+    mavenLocal()
+    mavenCentral()
 }
 
 apply plugin: 'idea'
