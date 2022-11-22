@@ -34,7 +34,6 @@ public class PaymentCreateExtensionService implements ExtensionService {
 
   @Override
   public ExtensionOutput process(CustomPayment payment) {
-    LOGGER.info("THIS IS THE PAYMENT INFO", payment);
     ExtensionOutput extensionOutput;
     var paymentCreateService = getCreateHandlerServiceForPayment(payment);
 

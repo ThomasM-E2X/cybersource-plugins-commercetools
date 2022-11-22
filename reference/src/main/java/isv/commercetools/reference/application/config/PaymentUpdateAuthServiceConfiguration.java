@@ -33,11 +33,13 @@ import isv.commercetools.reference.application.validation.FlexTokenVerifier;
 import isv.commercetools.reference.application.validation.ResourceValidator;
 import isv.commercetools.reference.application.validation.rules.service.AuthorizationAllowedValidationRule;
 import isv.commercetools.reference.application.validation.rules.service.BillingAddressValidationRule;
+import isv.commercetools.reference.application.validation.rules.service.DirectDebitValidationRule;
 import isv.commercetools.reference.application.validation.rules.service.ExpectNoEnrollmentDataValidationRule;
 import isv.commercetools.reference.application.validation.rules.service.PayerAuthEnrolmentCustomerValidationRule;
 import isv.commercetools.reference.application.validation.rules.service.PayerAuthEnrolmentHeadersValidationRule;
 import isv.commercetools.reference.application.validation.rules.service.PayerAuthEnrolmentResponseDataValidationRule;
 import isv.commercetools.reference.application.validation.rules.service.PaymentGreaterThanZeroValidationRule;
+import isv.commercetools.reference.application.validation.rules.service.ShippingAddressValidationRule;
 import isv.commercetools.reference.application.validation.rules.service.TokenValidationRule;
 import isv.payments.CybersourceClient;
 import java.util.Collections;
@@ -80,7 +82,7 @@ public class PaymentUpdateAuthServiceConfiguration {
     );
     paymentUpdateServiceMap.put(
       PAYMENT_METHOD_DIRECT_DEBIT,
-      paymentWithoutPayerAuthAuthorizationService
+      directDebitAuthorizationService
     );
     return paymentUpdateServiceMap;
   }
@@ -261,7 +263,8 @@ public class PaymentUpdateAuthServiceConfiguration {
   ) {
     var paymentValidator = new ResourceValidator<>(
       List.of(
-        new TokenValidationRule(objectMapper, flexTokenVerifier),
+        // new TokenValidationRule(objectMapper, flexTokenVerifier),
+        new DirectDebitValidationRule(objectMapper),
         new PaymentGreaterThanZeroValidationRule(objectMapper),
         new ExpectNoEnrollmentDataValidationRule(objectMapper),
         doNotExpectTransactionValidationRule(
@@ -271,9 +274,12 @@ public class PaymentUpdateAuthServiceConfiguration {
         )
       )
     );
-
+    //Need to check if there are certain values in the cart?
     var cartValidator = new ResourceValidator<>(
-      List.of(new BillingAddressValidationRule(objectMapper))
+      List.of(
+        new ShippingAddressValidationRule(objectMapper),
+        new BillingAddressValidationRule(objectMapper)
+      )
     );
 
     var authorizationRequestTransformer = new AuthorizationRequestTransformer(
