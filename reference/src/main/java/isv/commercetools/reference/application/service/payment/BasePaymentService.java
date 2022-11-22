@@ -30,80 +30,113 @@ import org.slf4j.Logger;
  */
 public abstract class BasePaymentService implements PaymentService {
 
-    private final RequestTransformer requestTransformer;
-    private final CybersourceClient cybersourceClient;
-    private final Logger logger;
-    private final ResponseTransformer responseTransformer;
-    protected final PaymentDetailsFactory paymentDetailsFactory;
-    private final ResourceValidator<CustomPayment> paymentValidator;
+  private final RequestTransformer requestTransformer;
+  private final CybersourceClient cybersourceClient;
+  private final Logger logger;
+  private final ResponseTransformer responseTransformer;
+  protected final PaymentDetailsFactory paymentDetailsFactory;
+  private final ResourceValidator<CustomPayment> paymentValidator;
 
-    public BasePaymentService(
-            PaymentDetailsFactory paymentDetailsFactory,
-            ResourceValidator<CustomPayment> paymentValidator,
-            RequestTransformer requestTransformer,
-            ResponseTransformer responseTransformer,
-            CybersourceClient cybersourceClient,
-            Logger logger) {
-        this.paymentDetailsFactory = paymentDetailsFactory;
-        this.paymentValidator = paymentValidator;
-        this.requestTransformer = requestTransformer;
-        this.responseTransformer = responseTransformer;
-        this.cybersourceClient = cybersourceClient;
-        this.logger = logger;
-    }
+  public BasePaymentService(
+    PaymentDetailsFactory paymentDetailsFactory,
+    ResourceValidator<CustomPayment> paymentValidator,
+    RequestTransformer requestTransformer,
+    ResponseTransformer responseTransformer,
+    CybersourceClient cybersourceClient,
+    Logger logger
+  ) {
+    this.paymentDetailsFactory = paymentDetailsFactory;
+    this.paymentValidator = paymentValidator;
+    this.requestTransformer = requestTransformer;
+    this.responseTransformer = responseTransformer;
+    this.cybersourceClient = cybersourceClient;
+    this.logger = logger;
+  }
 
-    @Override
-    public PaymentDetails populatePaymentDetails(CustomPayment payment) throws PaymentException {
-        return paymentDetailsFactory.paymentDetailsWithoutCart(payment);
-    }
+  @Override
+  public PaymentDetails populatePaymentDetails(CustomPayment payment)
+    throws PaymentException {
+    return paymentDetailsFactory.paymentDetailsWithoutCart(payment);
+  }
 
-    @Override
-    public List<ExtensionError> validate(PaymentDetails paymentDetails) {
-        return paymentValidator.validate(paymentDetails.getCustomPayment());
-    }
+  @Override
+  public List<ExtensionError> validate(PaymentDetails paymentDetails) {
+    return paymentValidator.validate(paymentDetails.getCustomPayment());
+  }
 
-    @Override
-    public List<UpdateAction> process(PaymentDetails paymentDetails) {
-        List<UpdateAction> response = emptyList();
-        var payment = paymentDetails.getCustomPayment();
-        var optionalTransaction = getTransactionToProcess(payment);
-        if (optionalTransaction.isPresent()) {
-            var transactionToProcess = optionalTransaction.get();
-            var request = requestTransformer.transform(paymentDetails);
-            try {
-                Map cybersourceResponse = cybersourceClient.makeRequest(request);
-                logger.info("Response received: {}", cybersourceResponse.toString());
-                response = responseTransformer.transform(cybersourceResponse, transactionToProcess);
-            } catch (PaymentException exception) {
-                logger.error(String.format("Received PaymentException when trying to process transaction %s on payment %s", transactionToProcess.getId(), payment.getId()), exception);
-                response = handlePaymentException(exception, transactionToProcess);
-            }
-        } else {
-            logger.error(String.format("%s called for payment %s but payment had no %s transaction", this.getClass().getSimpleName(), payment.getId(), transactionTypeToProcess()));
-        }
-        return response;
-    }
-
-    private List<UpdateAction> handlePaymentException(PaymentException exception, Transaction transaction) {
-        return buildErrorActions(transaction, exception.getMessage());
-    }
-
-    private List<UpdateAction> buildErrorActions(Transaction authTransaction, String reason) {
-        var updateAction = ChangeTransactionState.of(TransactionState.FAILURE, authTransaction.getId());
-        var interactionAction = AddInterfaceInteraction.ofTypeKeyAndObjects(
-                PaymentFailureDataConstants.TYPE_KEY,
-                singletonMap(PaymentErrorDataConstants.REASON, reason)
+  @Override
+  public List<UpdateAction> process(PaymentDetails paymentDetails) {
+    List<UpdateAction> response = emptyList();
+    var payment = paymentDetails.getCustomPayment();
+    var optionalTransaction = getTransactionToProcess(payment);
+    if (optionalTransaction.isPresent()) {
+      var transactionToProcess = optionalTransaction.get();
+      var request = requestTransformer.transform(paymentDetails);
+      try {
+        Map cybersourceResponse = cybersourceClient.makeRequest(request);
+        logger.info("Response received: {}", cybersourceResponse.toString());
+        response =
+          responseTransformer.transform(
+            cybersourceResponse,
+            transactionToProcess
+          );
+      } catch (PaymentException exception) {
+        logger.error(
+          String.format(
+            "Received PaymentException when trying to process transaction %s on payment %s",
+            transactionToProcess.getId(),
+            payment.getId()
+          ),
+          exception
         );
-        return List.of(updateAction, interactionAction);
+        response = handlePaymentException(exception, transactionToProcess);
+      }
+    } else {
+      logger.error(
+        String.format(
+          "%s called for payment %s but payment had no %s transaction",
+          this.getClass().getSimpleName(),
+          payment.getId(),
+          transactionTypeToProcess()
+        )
+      );
     }
+    return response;
+  }
 
-    protected Optional<Transaction> getTransactionToProcess(CustomPayment payment) {
-        return payment.getBasePayment().getTransactions().stream()
-                .filter(it -> it.getType() == transactionTypeToProcess())
-                .filter(it -> it.getState() == TransactionState.INITIAL)
-                .findFirst();
-    }
+  private List<UpdateAction> handlePaymentException(
+    PaymentException exception,
+    Transaction transaction
+  ) {
+    return buildErrorActions(transaction, exception.getMessage());
+  }
 
-    protected abstract TransactionType transactionTypeToProcess();
+  private List<UpdateAction> buildErrorActions(
+    Transaction authTransaction,
+    String reason
+  ) {
+    var updateAction = ChangeTransactionState.of(
+      TransactionState.FAILURE,
+      authTransaction.getId()
+    );
+    var interactionAction = AddInterfaceInteraction.ofTypeKeyAndObjects(
+      PaymentFailureDataConstants.TYPE_KEY,
+      singletonMap(PaymentErrorDataConstants.REASON, reason)
+    );
+    return List.of(updateAction, interactionAction);
+  }
 
+  protected Optional<Transaction> getTransactionToProcess(
+    CustomPayment payment
+  ) {
+    return payment
+      .getBasePayment()
+      .getTransactions()
+      .stream()
+      .filter(it -> it.getType() == transactionTypeToProcess())
+      .filter(it -> it.getState() == TransactionState.INITIAL)
+      .findFirst();
+  }
+
+  protected abstract TransactionType transactionTypeToProcess();
 }

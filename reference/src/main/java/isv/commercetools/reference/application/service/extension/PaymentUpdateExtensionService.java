@@ -24,62 +24,76 @@ import org.springframework.stereotype.Component;
 @SuppressWarnings("PMD.AvoidLiteralsInIfCondition")
 public class PaymentUpdateExtensionService implements ExtensionService {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(PaymentUpdateExtensionService.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(
+    PaymentUpdateExtensionService.class
+  );
 
-    private final Map<TransactionType, Map<String, PaymentService>> paymentUpdateServiceMap;
+  private final Map<TransactionType, Map<String, PaymentService>> paymentUpdateServiceMap;
 
-    public PaymentUpdateExtensionService(
-            Map<TransactionType, Map<String, PaymentService>> paymentUpdateServiceMap
-    ) {
-        this.paymentUpdateServiceMap = paymentUpdateServiceMap;
+  public PaymentUpdateExtensionService(
+    Map<TransactionType, Map<String, PaymentService>> paymentUpdateServiceMap
+  ) {
+    this.paymentUpdateServiceMap = paymentUpdateServiceMap;
+  }
+
+  @Override
+  public ExtensionOutput process(CustomPayment payment) {
+    var extensionOutput = new ExtensionOutput();
+
+    var optionalInitialTransaction = getInitialTransaction(payment);
+
+    if (optionalInitialTransaction.isPresent()) {
+      var transaction = optionalInitialTransaction.get();
+      var paymentService = paymentUpdateServiceMap.get(transaction.getType());
+      var test = paymentService.get(payment.getPaymentMethod());
+      if (test == null) {
+        LOGGER.warn(
+          "Could not determine how to process INITIAL transaction on payment {}, returning empty extension response",
+          payment.getId()
+        );
+        extensionOutput = new ExtensionOutput();
+      } else {
+        extensionOutput = process(payment, test);
+      }
     }
 
-    @Override
-    public ExtensionOutput process(CustomPayment payment) {
-        var extensionOutput = new ExtensionOutput();
+    return extensionOutput;
+  }
 
-        var optionalInitialTransaction = getInitialTransaction(payment);
+  private ExtensionOutput process(
+    CustomPayment payment,
+    PaymentService paymentService
+  ) {
+    ExtensionOutput response;
+    try {
+      var paymentDetails = paymentService.populatePaymentDetails(payment);
+      var errors = paymentService.validate(paymentDetails);
 
-        if (optionalInitialTransaction.isPresent()) {
-            var transaction = optionalInitialTransaction.get();
-            var paymentService = paymentUpdateServiceMap.get(transaction.getType()).get(payment.getPaymentMethod());
-            if (paymentService == null) {
-                LOGGER.warn("Could not determine how to process INITIAL transaction on payment {}, returning empty extension response", payment.getId());
-                extensionOutput = new ExtensionOutput();
-            } else {
-                extensionOutput = process(payment, paymentService);
-            }
-        }
-
-        return extensionOutput;
+      if (errors.isEmpty()) {
+        var actions = paymentService.process(paymentDetails);
+        response = new ExtensionOutput().withActions(actions);
+      } else {
+        response = new ExtensionOutput().withErrors(errors);
+      }
+    } catch (PaymentException e) {
+      LOGGER.error("Failed to process payment update", e);
+      response =
+        new ExtensionOutput()
+          .withErrors(
+            List.of(
+              new ExtensionError(ErrorCode.INVALID_OPERATION, e.getMessage())
+            )
+          );
     }
+    return response;
+  }
 
-    private ExtensionOutput process(CustomPayment payment, PaymentService paymentService) {
-        ExtensionOutput response;
-        try {
-            var paymentDetails = paymentService.populatePaymentDetails(payment);
-            var errors = paymentService.validate(paymentDetails);
-
-            if (errors.isEmpty()) {
-                var actions = paymentService.process(paymentDetails);
-                response = new ExtensionOutput().withActions(actions);
-            } else {
-                response = new ExtensionOutput().withErrors(errors);
-            }
-        } catch (PaymentException e) {
-            LOGGER.error("Failed to process payment update", e);
-            response = new ExtensionOutput().withErrors(List.of(
-                    new ExtensionError(ErrorCode.INVALID_OPERATION, e.getMessage())
-            ));
-        }
-        return response;
-    }
-
-    private Optional<Transaction> getInitialTransaction(CustomPayment payment) {
-        return payment.getBasePayment().getTransactions()
-                .stream()
-                .filter(it -> it.getState() == TransactionState.INITIAL)
-                .findFirst();
-    }
-
+  private Optional<Transaction> getInitialTransaction(CustomPayment payment) {
+    return payment
+      .getBasePayment()
+      .getTransactions()
+      .stream()
+      .filter(it -> it.getState() == TransactionState.INITIAL)
+      .findFirst();
+  }
 }

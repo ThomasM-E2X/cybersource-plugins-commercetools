@@ -12,43 +12,48 @@ import org.springframework.http.ResponseEntity;
 
 public abstract class AbstractPaymentController {
 
-    protected final PayloadLogger payloadLogger;
-    protected final ExtensionService extensionService;
-    protected final ResponseBuilder responseBuilder;
-    protected final ResourceValidator<CustomPayment> paymentValidator;
+  protected final PayloadLogger payloadLogger;
+  protected final ExtensionService extensionService;
+  protected final ResponseBuilder responseBuilder;
+  protected final ResourceValidator<CustomPayment> paymentValidator;
 
-    public AbstractPaymentController(
-            ExtensionService extensionService,
-            PayloadLogger payloadLogger,
-            ResourceValidator<CustomPayment> paymentValidator,
-            ResponseBuilder responseBuilder) {
-        this.extensionService = extensionService;
-        this.payloadLogger = payloadLogger;
-        this.paymentValidator = paymentValidator;
-        this.responseBuilder = responseBuilder;
+  public AbstractPaymentController(
+    ExtensionService extensionService,
+    PayloadLogger payloadLogger,
+    ResourceValidator<CustomPayment> paymentValidator,
+    ResponseBuilder responseBuilder
+  ) {
+    this.extensionService = extensionService;
+    this.payloadLogger = payloadLogger;
+    this.paymentValidator = paymentValidator;
+    this.responseBuilder = responseBuilder;
+  }
+
+  public abstract ResponseEntity<ExtensionOutput> handle(
+    final ExtensionInput<Payment> input
+  );
+
+  protected ResponseEntity<ExtensionOutput> validateAndProcess(
+    CustomPayment payment
+  ) {
+    ResponseEntity<ExtensionOutput> response;
+    var validationResult = paymentValidator.validate(payment);
+    if (validationResult.isEmpty()) {
+      response = process(payment);
+    } else {
+      response = responseBuilder.buildFailureResponse(validationResult);
     }
+    return response;
+  }
 
-    public abstract ResponseEntity<ExtensionOutput> handle(final ExtensionInput<Payment> input);
-
-    protected ResponseEntity<ExtensionOutput> validateAndProcess(CustomPayment payment) {
-        ResponseEntity<ExtensionOutput> response;
-        var validationResult = paymentValidator.validate(payment);
-        if (validationResult.isEmpty()) {
-            response = process(payment);
-        } else {
-            response = responseBuilder.buildFailureResponse(validationResult);
-        }
-        return response;
+  private ResponseEntity<ExtensionOutput> process(CustomPayment payment) {
+    ResponseEntity<ExtensionOutput> response;
+    var serviceOutput = extensionService.process(payment);
+    if (serviceOutput.getErrors().isEmpty()) {
+      response = responseBuilder.buildSuccessResponse(serviceOutput);
+    } else {
+      response = responseBuilder.buildFailureResponse(serviceOutput);
     }
-
-    private ResponseEntity<ExtensionOutput> process(CustomPayment payment) {
-        ResponseEntity<ExtensionOutput> response;
-        var serviceOutput = extensionService.process(payment);
-        if (serviceOutput.getErrors().isEmpty()) {
-            response = responseBuilder.buildSuccessResponse(serviceOutput);
-        } else {
-            response = responseBuilder.buildFailureResponse(serviceOutput);
-        }
-        return response;
-    }
+    return response;
+  }
 }

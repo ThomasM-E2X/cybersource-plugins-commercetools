@@ -1,5 +1,6 @@
 package isv.commercetools.reference.application.config;
 
+import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_DIRECT_DEBIT;
 import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_VISA_CHECKOUT;
 import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_WITHOUT_PAYER_AUTH;
 import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_WITH_PAYER_AUTH;
@@ -30,49 +31,76 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class PaymentCreateServiceConfiguration {
 
-    /**
-     * Creates a map from payment method to PaymentService for handling Payment creates
-     * <p>
-     * Payments without payer authentication enabled are configured with a service that returns empty success responses
-     */
-    @Bean
-    public Map<String, PaymentService> paymentCreateServiceMap(
-            PaymentService payerAuthEnrolmentCheckService
-    ) {
-        var paymentCreateServiceMap = new HashMap<String, PaymentService>();
-        paymentCreateServiceMap.put(PAYMENT_METHOD_WITHOUT_PAYER_AUTH, new NoOpPaymentService());
-        paymentCreateServiceMap.put(PAYMENT_METHOD_VISA_CHECKOUT, new NoOpPaymentService());
-        paymentCreateServiceMap.put(PAYMENT_METHOD_WITH_PAYER_AUTH, payerAuthEnrolmentCheckService);
-        return paymentCreateServiceMap;
-    }
+  /**
+   * Creates a map from payment method to PaymentService for handling Payment creates
+   * <p>
+   * Payments without payer authentication enabled are configured with a service that returns empty success responses
+   */
+  @Bean
+  public Map<String, PaymentService> paymentCreateServiceMap(
+    PaymentService payerAuthEnrolmentCheckService
+  ) {
+    var paymentCreateServiceMap = new HashMap<String, PaymentService>();
+    paymentCreateServiceMap.put(
+      PAYMENT_METHOD_WITHOUT_PAYER_AUTH,
+      new NoOpPaymentService()
+    );
+    paymentCreateServiceMap.put(
+      PAYMENT_METHOD_VISA_CHECKOUT,
+      new NoOpPaymentService()
+    );
+    paymentCreateServiceMap.put(
+      PAYMENT_METHOD_WITH_PAYER_AUTH,
+      payerAuthEnrolmentCheckService
+    );
+    paymentCreateServiceMap.put(
+      PAYMENT_METHOD_DIRECT_DEBIT,
+      new NoOpPaymentService()
+    );
+    return paymentCreateServiceMap;
+  }
 
-    /**
-     * Payment service that makes a Payer Auth Enrolment check request, and saves response values onto the payment.
-     */
-    @Bean
-    public PaymentService payerAuthEnrolmentCheckService(
-            CybersourceIds cybersourceIds,
-            CybersourceClient cybersourceClient,
-            CardinalService cardinalService,
-            ObjectMapper objectMapper,
-            PaymentDetailsFactory paymentDetailsFactory,
-            FlexTokenVerifier flexTokenVerifier
-    ) {
+  /**
+   * Payment service that makes a Payer Auth Enrolment check request, and saves response values onto the payment.
+   */
+  @Bean
+  public PaymentService payerAuthEnrolmentCheckService(
+    CybersourceIds cybersourceIds,
+    CybersourceClient cybersourceClient,
+    CardinalService cardinalService,
+    ObjectMapper objectMapper,
+    PaymentDetailsFactory paymentDetailsFactory,
+    FlexTokenVerifier flexTokenVerifier
+  ) {
+    var paymentValidator = new ResourceValidator<>(
+      List.of(
+        new TokenValidationRule(objectMapper, flexTokenVerifier),
+        new PaymentGreaterThanZeroValidationRule(objectMapper),
+        new PayerAuthEnrolmentHeadersValidationRule(objectMapper)
+      )
+    );
 
-        var paymentValidator = new ResourceValidator<>(List.of(
-                new TokenValidationRule(objectMapper, flexTokenVerifier),
-                new PaymentGreaterThanZeroValidationRule(objectMapper),
-                new PayerAuthEnrolmentHeadersValidationRule(objectMapper)
-        ));
+    var cartValidator = new ResourceValidator<>(
+      List.of(
+        new BillingAddressValidationRule(objectMapper),
+        new PayerAuthEnrolmentCustomerValidationRule(objectMapper)
+      )
+    );
 
-        var cartValidator = new ResourceValidator<>(List.of(
-                new BillingAddressValidationRule(objectMapper),
-                new PayerAuthEnrolmentCustomerValidationRule(objectMapper)
-        ));
-
-        var requestTransformer = new PayerAuthEnrolmentCheckRequestTransformer(cybersourceIds, cardinalService);
-        var responseTransformer = new PayerAuthEnrolmentCheckResponseTransformer(cardinalService);
-        return new PayerAuthEnrolmentCheckService(paymentDetailsFactory, paymentValidator, cartValidator, requestTransformer, responseTransformer, cybersourceClient);
-    }
-
+    var requestTransformer = new PayerAuthEnrolmentCheckRequestTransformer(
+      cybersourceIds,
+      cardinalService
+    );
+    var responseTransformer = new PayerAuthEnrolmentCheckResponseTransformer(
+      cardinalService
+    );
+    return new PayerAuthEnrolmentCheckService(
+      paymentDetailsFactory,
+      paymentValidator,
+      cartValidator,
+      requestTransformer,
+      responseTransformer,
+      cybersourceClient
+    );
+  }
 }

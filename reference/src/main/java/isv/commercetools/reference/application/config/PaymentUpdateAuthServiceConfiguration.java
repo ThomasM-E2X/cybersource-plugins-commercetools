@@ -1,5 +1,6 @@
 package isv.commercetools.reference.application.config;
 
+import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_DIRECT_DEBIT;
 import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_VISA_CHECKOUT;
 import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_WITHOUT_PAYER_AUTH;
 import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_WITH_PAYER_AUTH;
@@ -50,130 +51,246 @@ import org.springframework.context.annotation.Configuration;
 @SuppressWarnings("PMD.ExcessiveImports")
 public class PaymentUpdateAuthServiceConfiguration {
 
-    /**
-     * Creates a map from payment method to PaymentService for handling authorization transactions
-     * <p>
-     * There are separate PaymentServices configured for payment methods where payer authentication is enabled and
-     * where it is disabled. In a typical implementation it would be expected to configure only one of these.
-     */
-    @Bean
-    public Map<String, PaymentService> paymentUpdateAuthServiceMap(
-            PaymentService paymentWithoutPayerAuthAuthorizationService,
-            PaymentService paymentWithPayerAuthAuthorizationService,
-            PaymentService visaCheckoutAuthorizationService
-    ) {
-        var paymentUpdateServiceMap = new HashMap<String, PaymentService>();
+  /**
+   * Creates a map from payment method to PaymentService for handling authorization transactions
+   * <p>
+   * There are separate PaymentServices configured for payment methods where payer authentication is enabled and
+   * where it is disabled. In a typical implementation it would be expected to configure only one of these.
+   */
+  @Bean
+  public Map<String, PaymentService> paymentUpdateAuthServiceMap(
+    PaymentService paymentWithoutPayerAuthAuthorizationService,
+    PaymentService paymentWithPayerAuthAuthorizationService,
+    PaymentService visaCheckoutAuthorizationService,
+    PaymentService directDebitAuthorizationService
+  ) {
+    var paymentUpdateServiceMap = new HashMap<String, PaymentService>();
 
-        paymentUpdateServiceMap.put(PAYMENT_METHOD_WITHOUT_PAYER_AUTH, paymentWithoutPayerAuthAuthorizationService);
-        paymentUpdateServiceMap.put(PAYMENT_METHOD_VISA_CHECKOUT, visaCheckoutAuthorizationService);
-        paymentUpdateServiceMap.put(PAYMENT_METHOD_WITH_PAYER_AUTH, paymentWithPayerAuthAuthorizationService);
-        return paymentUpdateServiceMap;
-    }
+    paymentUpdateServiceMap.put(
+      PAYMENT_METHOD_WITHOUT_PAYER_AUTH,
+      paymentWithoutPayerAuthAuthorizationService
+    );
+    paymentUpdateServiceMap.put(
+      PAYMENT_METHOD_VISA_CHECKOUT,
+      visaCheckoutAuthorizationService
+    );
+    paymentUpdateServiceMap.put(
+      PAYMENT_METHOD_WITH_PAYER_AUTH,
+      paymentWithPayerAuthAuthorizationService
+    );
+    paymentUpdateServiceMap.put(
+      PAYMENT_METHOD_DIRECT_DEBIT,
+      paymentWithoutPayerAuthAuthorizationService
+    );
+    return paymentUpdateServiceMap;
+  }
 
-    /**
-     * Payment authorization service which will authorize payments that do not require 3DS
-     */
-    @Bean
-    public PaymentService paymentWithoutPayerAuthAuthorizationService(
-            ObjectMapper objectMapper,
-            CybersourceIds cybersourceIds,
-            CybersourceClient cybersourceClient,
-            PaymentDetailsFactory paymentDetailsFactory,
-            FlexTokenVerifier flexTokenVerifier
-    ) {
+  /**
+   * Payment authorization service which will authorize payments that do not require 3DS
+   */
+  @Bean
+  public PaymentService paymentWithoutPayerAuthAuthorizationService(
+    ObjectMapper objectMapper,
+    CybersourceIds cybersourceIds,
+    CybersourceClient cybersourceClient,
+    PaymentDetailsFactory paymentDetailsFactory,
+    FlexTokenVerifier flexTokenVerifier
+  ) {
+    var paymentValidator = new ResourceValidator<>(
+      List.of(
+        new TokenValidationRule(objectMapper, flexTokenVerifier),
+        new PaymentGreaterThanZeroValidationRule(objectMapper),
+        new ExpectNoEnrollmentDataValidationRule(objectMapper),
+        doNotExpectTransactionValidationRule(
+          objectMapper,
+          TransactionState.SUCCESS,
+          TransactionType.AUTHORIZATION
+        )
+      )
+    );
 
-        var paymentValidator = new ResourceValidator<>(List.of(
-                new TokenValidationRule(objectMapper, flexTokenVerifier),
-                new PaymentGreaterThanZeroValidationRule(objectMapper),
-                new ExpectNoEnrollmentDataValidationRule(objectMapper),
-                doNotExpectTransactionValidationRule(objectMapper, TransactionState.SUCCESS, TransactionType.AUTHORIZATION)
-        ));
+    var cartValidator = new ResourceValidator<>(
+      List.of(new BillingAddressValidationRule(objectMapper))
+    );
 
-        var cartValidator = new ResourceValidator<>(List.of(
-                new BillingAddressValidationRule(objectMapper)
-        ));
+    var authorizationRequestTransformer = new AuthorizationRequestTransformer(
+      cybersourceIds
+    );
+    var authorizationResponseTransformer = new CompositeResponseTransformer(
+      new ReasonCodeResponseTransformer(),
+      new SubscriptionCreateResponseTransformer()
+    );
 
-        var authorizationRequestTransformer = new AuthorizationRequestTransformer(cybersourceIds);
-        var authorizationResponseTransformer = new CompositeResponseTransformer(new ReasonCodeResponseTransformer(), new SubscriptionCreateResponseTransformer());
+    return new PaymentAuthorizationService(
+      paymentDetailsFactory,
+      paymentValidator,
+      cartValidator,
+      authorizationRequestTransformer,
+      authorizationResponseTransformer,
+      cybersourceClient
+    );
+  }
 
-        return new PaymentAuthorizationService(paymentDetailsFactory, paymentValidator, cartValidator, authorizationRequestTransformer, authorizationResponseTransformer, cybersourceClient);
-    }
+  /**
+   * Payment authorization service which will authorize payments that do not require 3DS
+   */
+  @Bean
+  public PaymentService visaCheckoutAuthorizationService(
+    ObjectMapper objectMapper,
+    CybersourceIds cybersourceIds,
+    CybersourceClient cybersourceClient,
+    SphereClient paymentSphereClient,
+    PaymentDetailsFactory paymentDetailsFactory,
+    FlexTokenVerifier flexTokenVerifier
+  ) {
+    var paymentValidator = new ResourceValidator<>(
+      List.of(
+        new TokenValidationRule(objectMapper, flexTokenVerifier),
+        new ExpectNoEnrollmentDataValidationRule(objectMapper),
+        new PaymentGreaterThanZeroValidationRule(objectMapper),
+        doNotExpectTransactionValidationRule(
+          objectMapper,
+          TransactionState.SUCCESS,
+          TransactionType.AUTHORIZATION
+        )
+      )
+    );
 
-    /**
-     * Payment authorization service which will authorize payments that do not require 3DS
-     */
-    @Bean
-    public PaymentService visaCheckoutAuthorizationService(
-            ObjectMapper objectMapper,
-            CybersourceIds cybersourceIds,
-            CybersourceClient cybersourceClient,
-            SphereClient paymentSphereClient,
-            PaymentDetailsFactory paymentDetailsFactory,
-        FlexTokenVerifier flexTokenVerifier
-    ) {
-        var paymentValidator = new ResourceValidator<>(List.of(
-                new TokenValidationRule(objectMapper, flexTokenVerifier),
-                new ExpectNoEnrollmentDataValidationRule(objectMapper),
-                new PaymentGreaterThanZeroValidationRule(objectMapper),
-                doNotExpectTransactionValidationRule(objectMapper, TransactionState.SUCCESS, TransactionType.AUTHORIZATION)
-        ));
+    var cartValidator = new ResourceValidator<Cart>(Collections.emptyList());
 
-        var cartValidator = new ResourceValidator<Cart>(Collections.emptyList());
+    var authorizationRequestTransformer = new VisaCheckoutAuthorizationRequestTransformer(
+      cybersourceIds
+    );
+    var dataRequestTransformer = new VisaCheckoutDataRequestTransformer(
+      cybersourceIds
+    );
 
-        var authorizationRequestTransformer = new VisaCheckoutAuthorizationRequestTransformer(cybersourceIds);
-        var dataRequestTransformer = new VisaCheckoutDataRequestTransformer(cybersourceIds);
+    var authorizationResponseTransformer = new ReasonCodeResponseTransformer();
+    var cybersourceResponseTransformer = new CybersourceResponseToFieldGroupTransformer(
+      objectMapper
+    );
 
-        var authorizationResponseTransformer = new ReasonCodeResponseTransformer();
-        var cybersourceResponseTransformer = new CybersourceResponseToFieldGroupTransformer(objectMapper);
+    var visaCheckoutQueryService = new VisaCheckoutQueryService(
+      dataRequestTransformer,
+      cybersourceClient
+    );
+    var updateActionCreator = new VisaCheckoutUpdateActionCreator(
+      new DefaultCybersourceResponseAddressMapper()
+    );
 
-        var visaCheckoutQueryService = new VisaCheckoutQueryService(dataRequestTransformer, cybersourceClient);
-        var updateActionCreator = new VisaCheckoutUpdateActionCreator(new DefaultCybersourceResponseAddressMapper());
+    return new VisaCheckoutAuthorizationService(
+      paymentDetailsFactory,
+      paymentValidator,
+      cartValidator,
+      authorizationRequestTransformer,
+      authorizationResponseTransformer,
+      cybersourceClient,
+      paymentSphereClient,
+      visaCheckoutQueryService,
+      updateActionCreator,
+      cybersourceResponseTransformer
+    );
+  }
 
-        return new VisaCheckoutAuthorizationService(
-                paymentDetailsFactory,
-                paymentValidator,
-                cartValidator,
-                authorizationRequestTransformer,
-                authorizationResponseTransformer,
-                cybersourceClient,
-                paymentSphereClient,
-                visaCheckoutQueryService,
-                updateActionCreator,
-                cybersourceResponseTransformer
-        );
-    }
+  /**
+   * Payment authorization service which will authorize payments that require 3DS
+   */
+  @Bean
+  public PaymentService paymentWithPayerAuthAuthorizationService(
+    ObjectMapper objectMapper,
+    CardinalService cardinalService,
+    CybersourceIds cybersourceIds,
+    CybersourceClient cybersourceClient,
+    PaymentDetailsFactory paymentDetailsFactory,
+    FlexTokenVerifier flexTokenVerifier
+  ) {
+    var paymentValidator = new ResourceValidator<>(
+      List.of(
+        new TokenValidationRule(objectMapper, flexTokenVerifier),
+        new PaymentGreaterThanZeroValidationRule(objectMapper),
+        new PayerAuthEnrolmentHeadersValidationRule(objectMapper),
+        new PayerAuthEnrolmentResponseDataValidationRule(
+          objectMapper,
+          cardinalService
+        ),
+        new AuthorizationAllowedValidationRule(objectMapper),
+        doNotExpectTransactionValidationRule(
+          objectMapper,
+          TransactionState.SUCCESS,
+          TransactionType.AUTHORIZATION
+        )
+      )
+    );
 
-    /**
-     * Payment authorization service which will authorize payments that require 3DS
-     */
-    @Bean
-    public PaymentService paymentWithPayerAuthAuthorizationService(
-            ObjectMapper objectMapper,
-            CardinalService cardinalService,
-            CybersourceIds cybersourceIds,
-            CybersourceClient cybersourceClient,
-            PaymentDetailsFactory paymentDetailsFactory,
-            FlexTokenVerifier flexTokenVerifier
-    ) {
+    var cartValidator = new ResourceValidator<>(
+      List.of(
+        new BillingAddressValidationRule(objectMapper),
+        new PayerAuthEnrolmentCustomerValidationRule(objectMapper)
+      )
+    );
 
-        var paymentValidator = new ResourceValidator<>(List.of(
-                new TokenValidationRule(objectMapper, flexTokenVerifier),
-                new PaymentGreaterThanZeroValidationRule(objectMapper),
-                new PayerAuthEnrolmentHeadersValidationRule(objectMapper),
-                new PayerAuthEnrolmentResponseDataValidationRule(objectMapper, cardinalService),
-                new AuthorizationAllowedValidationRule(objectMapper),
-                doNotExpectTransactionValidationRule(objectMapper, TransactionState.SUCCESS, TransactionType.AUTHORIZATION)
-        ));
+    var authorizationWithPayerAuthRequestTransformer = new AuthorizationWithPayerAuthRequestTransformer(
+      cybersourceIds
+    );
+    var authorizationResponseTransformer = new CompositeResponseTransformer(
+      new ReasonCodeResponseTransformer(),
+      new PayerAuthValidateResponseTransformer("payerAuthValidateReply_", true),
+      new SubscriptionCreateResponseTransformer()
+    );
 
-        var cartValidator = new ResourceValidator<>(List.of(
-                new BillingAddressValidationRule(objectMapper),
-                new PayerAuthEnrolmentCustomerValidationRule(objectMapper)
-        ));
+    return new PaymentAuthorizationService(
+      paymentDetailsFactory,
+      paymentValidator,
+      cartValidator,
+      authorizationWithPayerAuthRequestTransformer,
+      authorizationResponseTransformer,
+      cybersourceClient
+    );
+  }
 
-        var authorizationWithPayerAuthRequestTransformer = new AuthorizationWithPayerAuthRequestTransformer(cybersourceIds);
-        var authorizationResponseTransformer = new CompositeResponseTransformer(new ReasonCodeResponseTransformer(), new PayerAuthValidateResponseTransformer("payerAuthValidateReply_", true), new SubscriptionCreateResponseTransformer());
+  /**
+   * Payment authorization service which will authorize direct debit payments
+   */
+  @Bean
+  public PaymentService directDebitAuthorizationService(
+    ObjectMapper objectMapper,
+    CybersourceIds cybersourceIds,
+    CybersourceClient cybersourceClient,
+    PaymentDetailsFactory paymentDetailsFactory,
+    FlexTokenVerifier flexTokenVerifier
+  ) {
+    var paymentValidator = new ResourceValidator<>(
+      List.of(
+        new TokenValidationRule(objectMapper, flexTokenVerifier),
+        new PaymentGreaterThanZeroValidationRule(objectMapper),
+        new ExpectNoEnrollmentDataValidationRule(objectMapper),
+        doNotExpectTransactionValidationRule(
+          objectMapper,
+          TransactionState.SUCCESS,
+          TransactionType.AUTHORIZATION
+        )
+      )
+    );
 
-        return new PaymentAuthorizationService(paymentDetailsFactory, paymentValidator, cartValidator, authorizationWithPayerAuthRequestTransformer, authorizationResponseTransformer, cybersourceClient);
-    }
+    var cartValidator = new ResourceValidator<>(
+      List.of(new BillingAddressValidationRule(objectMapper))
+    );
 
+    var authorizationRequestTransformer = new AuthorizationRequestTransformer(
+      cybersourceIds
+    );
+    var authorizationResponseTransformer = new CompositeResponseTransformer(
+      new ReasonCodeResponseTransformer(),
+      new SubscriptionCreateResponseTransformer()
+    );
+
+    return new PaymentAuthorizationService(
+      paymentDetailsFactory,
+      paymentValidator,
+      cartValidator,
+      authorizationRequestTransformer,
+      authorizationResponseTransformer,
+      cybersourceClient
+    );
+  }
 }

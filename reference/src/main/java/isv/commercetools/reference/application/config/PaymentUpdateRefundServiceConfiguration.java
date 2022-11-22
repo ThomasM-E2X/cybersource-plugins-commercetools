@@ -1,5 +1,6 @@
 package isv.commercetools.reference.application.config;
 
+import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_DIRECT_DEBIT;
 import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_VISA_CHECKOUT;
 import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_WITHOUT_PAYER_AUTH;
 import static isv.commercetools.mapping.constants.PaymentMethodConstants.PAYMENT_METHOD_WITH_PAYER_AUTH;
@@ -28,59 +29,102 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class PaymentUpdateRefundServiceConfiguration {
 
-    /**
-     * Creates a map from payment method to PaymentService for handling refund transactions
-     */
-    @Bean
-    public Map<String, PaymentService> paymentUpdateRefundServiceMap(
-            PaymentService paymentRefundService,
-            PaymentService visaCheckoutPaymentRefundService
-    ) {
-        var paymentChargeServiceMap = new HashMap<String, PaymentService>();
-        paymentChargeServiceMap.put(PAYMENT_METHOD_WITHOUT_PAYER_AUTH, paymentRefundService);
-        paymentChargeServiceMap.put(PAYMENT_METHOD_WITH_PAYER_AUTH, paymentRefundService);
-        paymentChargeServiceMap.put(PAYMENT_METHOD_VISA_CHECKOUT, visaCheckoutPaymentRefundService);
-        return paymentChargeServiceMap;
-    }
+  /**
+   * Creates a map from payment method to PaymentService for handling refund transactions
+   */
+  @Bean
+  public Map<String, PaymentService> paymentUpdateRefundServiceMap(
+    PaymentService paymentRefundService,
+    PaymentService visaCheckoutPaymentRefundService
+  ) {
+    var paymentChargeServiceMap = new HashMap<String, PaymentService>();
+    paymentChargeServiceMap.put(
+      PAYMENT_METHOD_WITHOUT_PAYER_AUTH,
+      paymentRefundService
+    );
+    paymentChargeServiceMap.put(
+      PAYMENT_METHOD_DIRECT_DEBIT,
+      paymentRefundService
+    );
+    paymentChargeServiceMap.put(
+      PAYMENT_METHOD_WITH_PAYER_AUTH,
+      paymentRefundService
+    );
+    paymentChargeServiceMap.put(
+      PAYMENT_METHOD_VISA_CHECKOUT,
+      visaCheckoutPaymentRefundService
+    );
+    return paymentChargeServiceMap;
+  }
 
-    /**
-     * Payment service that will refund a previously charged payment.
-     */
-    @Bean
-    public PaymentService paymentRefundService(
-            ObjectMapper objectMapper,
-            CybersourceIds cybersourceIds,
-            CybersourceClient cybersourceClient,
-            PaymentDetailsFactory paymentDetailsFactory
-    ) {
-        var requestTransformer = new CreditRequestTransformer(cybersourceIds);
-        var reasonCodeResponseTransformer = new ReasonCodeResponseTransformer();
+  /**
+   * Payment service that will refund a previously charged payment.
+   */
+  @Bean
+  public PaymentService paymentRefundService(
+    ObjectMapper objectMapper,
+    CybersourceIds cybersourceIds,
+    CybersourceClient cybersourceClient,
+    PaymentDetailsFactory paymentDetailsFactory
+  ) {
+    var requestTransformer = new CreditRequestTransformer(cybersourceIds);
+    var reasonCodeResponseTransformer = new ReasonCodeResponseTransformer();
 
-        return new PaymentRefundService(paymentDetailsFactory, validators(objectMapper), requestTransformer, reasonCodeResponseTransformer, cybersourceClient);
-    }
+    return new PaymentRefundService(
+      paymentDetailsFactory,
+      validators(objectMapper),
+      requestTransformer,
+      reasonCodeResponseTransformer,
+      cybersourceClient
+    );
+  }
 
-    /**
-     * Payment service that will refund a previously charged payment for Visa Checkout.
-     */
-    @Bean
-    public PaymentService visaCheckoutPaymentRefundService(
-            ObjectMapper objectMapper,
-            CybersourceIds cybersourceIds,
-            CybersourceClient cybersourceClient,
-            PaymentDetailsFactory paymentDetailsFactory) {
-        var requestTransformer = new VisaCheckoutCreditRequestTransformer(cybersourceIds);
-        var reasonCodeResponseTransformer = new ReasonCodeResponseTransformer();
+  /**
+   * Payment service that will refund a previously charged payment for Visa Checkout.
+   */
+  @Bean
+  public PaymentService visaCheckoutPaymentRefundService(
+    ObjectMapper objectMapper,
+    CybersourceIds cybersourceIds,
+    CybersourceClient cybersourceClient,
+    PaymentDetailsFactory paymentDetailsFactory
+  ) {
+    var requestTransformer = new VisaCheckoutCreditRequestTransformer(
+      cybersourceIds
+    );
+    var reasonCodeResponseTransformer = new ReasonCodeResponseTransformer();
 
-        return new PaymentRefundService(paymentDetailsFactory, validators(objectMapper), requestTransformer, reasonCodeResponseTransformer, cybersourceClient);
-    }
+    return new PaymentRefundService(
+      paymentDetailsFactory,
+      validators(objectMapper),
+      requestTransformer,
+      reasonCodeResponseTransformer,
+      cybersourceClient
+    );
+  }
 
-    private ResourceValidator<CustomPayment> validators(ObjectMapper objectMapper) {
-        return new ResourceValidator<>(List.of(
-                expectTransactionValidationRule(objectMapper, TransactionState.INITIAL, TransactionType.REFUND),
-                expectTransactionValidationRule(objectMapper, TransactionState.SUCCESS, TransactionType.AUTHORIZATION),
-                expectTransactionValidationRule(objectMapper, TransactionState.SUCCESS, TransactionType.CHARGE),
-                new RefundTotalNoMoreThanChargeAmountValidationRule(objectMapper)
-        ));
-    }
-
+  private ResourceValidator<CustomPayment> validators(
+    ObjectMapper objectMapper
+  ) {
+    return new ResourceValidator<>(
+      List.of(
+        expectTransactionValidationRule(
+          objectMapper,
+          TransactionState.INITIAL,
+          TransactionType.REFUND
+        ),
+        expectTransactionValidationRule(
+          objectMapper,
+          TransactionState.SUCCESS,
+          TransactionType.AUTHORIZATION
+        ),
+        expectTransactionValidationRule(
+          objectMapper,
+          TransactionState.SUCCESS,
+          TransactionType.CHARGE
+        ),
+        new RefundTotalNoMoreThanChargeAmountValidationRule(objectMapper)
+      )
+    );
+  }
 }
